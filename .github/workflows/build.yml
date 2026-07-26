@@ -73,7 +73,8 @@ jobs:
         id: tags
         shell: bash
         run: |
-          GHCR_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${GITHUB_REPOSITORY#*/}"
+          GHCR_REPOSITORY="${GITHUB_REPOSITORY,,}"
+          GHCR_IMAGE="ghcr.io/${GHCR_REPOSITORY}"
           VERSION="${{ steps.version.outputs.value }}"
 
           {
