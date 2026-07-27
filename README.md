@@ -1,6 +1,6 @@
 # DERPer Docker
 
-用 GitHub Actions 自编译 DERPer Docker 镜像，并同时推送到 GHCR 和阿里云 ACR。服务器只需要 `docker compose pull` 和 `docker compose up -d`，不需要安装 Go、Docker Buildx 或在本机编译。
+用 GitHub Actions 自编译 DERPer Docker 镜像，并推送到 GHCR、阿里云 ACR 和 Docker Hub。服务器只需要 `docker compose pull` 和 `docker compose up -d`，不需要安装 Go、Docker Buildx 或在本机编译。
 
 DERPer 来自 Tailscale 官方 Go 包：`tailscale.com/cmd/derper`。
 
@@ -56,6 +56,8 @@ ghcr.io/<owner>/<repo>:v1.86.2
 ghcr.io/<owner>/<repo>:latest
 registry.cn-hangzhou.aliyuncs.com/<namespace>/derper:v1.86.2
 registry.cn-hangzhou.aliyuncs.com/<namespace>/derper:latest
+docker.io/<dockerhub-namespace>/<dockerhub-image>:v1.86.2
+docker.io/<dockerhub-namespace>/<dockerhub-image>:latest
 ```
 
 手动运行时默认只推送输入的版本 tag；如果勾选 `push_latest`，也会推送 `latest`。
@@ -72,6 +74,24 @@ GHCR_TOKEN=your-github-token
 
 不要手动创建名为 `GITHUB_TOKEN` 的 Secret。`GITHUB_TOKEN` 是 GitHub Actions 的内置 token，GitHub 不允许用户创建以 `GITHUB_` 开头的 Secret。
 
+如果要推送 Docker Hub，需要配置 Repository Variables：
+
+```text
+DOCKERHUB_NAMESPACE=your-dockerhub-namespace
+DOCKERHUB_IMAGE=derper
+```
+
+`DOCKERHUB_IMAGE` 可选，不配置时默认使用 `derper`。
+
+还需要配置 Repository Secrets：
+
+```text
+DOCKERHUB_USERNAME=your-dockerhub-username
+DOCKERHUB_TOKEN=your-dockerhub-token
+```
+
+建议使用 Docker Hub Access Token，不要直接使用账号密码。
+
 如果要推送阿里云 ACR，需要在 GitHub Repository Settings -> Secrets and variables -> Actions 里配置：
 
 ```text
@@ -83,7 +103,9 @@ ALIYUN_PASSWORD=your-acr-password
 
 建议使用阿里云 ACR 的访问凭证，不要直接使用主账号密码。
 
-如果没有配置这些 ACR secrets，workflow 会继续推送 GHCR，只跳过 ACR。
+如果没有配置这些 ACR secrets，workflow 会继续推送 GHCR 和已启用的其他仓库，只跳过 ACR。
+
+如果没有完整配置 Docker Hub 的 namespace、username 和 token，workflow 会跳过 Docker Hub，不影响 GHCR / ACR。
 
 ### 发版流程
 
@@ -108,6 +130,12 @@ cp .env.example .env
 DERP_HOSTNAME=derp.example.com
 DERPER_IMAGE=registry.cn-hangzhou.aliyuncs.com/your-namespace/derper:latest
 TZ=Asia/Shanghai
+```
+
+也可以使用 Docker Hub 镜像：
+
+```dotenv
+DERPER_IMAGE=your-dockerhub-namespace/derper:latest
 ```
 
 默认使用 host 网络：
@@ -210,4 +238,4 @@ docker compose -f docker-compose.bridge.yml --env-file .env.example config
 - 首次启动时 DERPer 会根据 `--certmode=letsencrypt` 自动申请证书，前提是 DNS 和 TCP `80` 已经正确开放。
 - DERP 协议会在 TLS 内部切换到自定义双向协议，不适合放在普通 HTTP 反向代理后面；推荐让 DERPer 直接监听公网 `443/tcp`。
 - 国内服务器建议部署时使用阿里云 ACR 镜像地址，拉取会更稳定。
-- 公共开源用户可以直接使用 GHCR 镜像地址。
+- 公共开源用户可以直接使用 GHCR 或 Docker Hub 镜像地址。
