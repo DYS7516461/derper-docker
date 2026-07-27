@@ -62,7 +62,15 @@ registry.cn-hangzhou.aliyuncs.com/<namespace>/derper:latest
 
 ### GitHub Secrets
 
-GHCR 使用仓库自带的 `GITHUB_TOKEN`，不需要额外配置。
+GHCR 使用 `GHCR_TOKEN`。请在 GitHub Repository Settings -> Secrets and variables -> Actions 里配置：
+
+```text
+GHCR_TOKEN=your-github-token
+```
+
+`GHCR_TOKEN` 可以使用 GitHub Personal Access Token，至少需要 `write:packages` 权限。如果仓库是私有仓库，通常还需要 `repo` 权限。
+
+不要手动创建名为 `GITHUB_TOKEN` 的 Secret。`GITHUB_TOKEN` 是 GitHub Actions 的内置 token，GitHub 不允许用户创建以 `GITHUB_` 开头的 Secret。
 
 如果要推送阿里云 ACR，需要在 GitHub Repository Settings -> Secrets and variables -> Actions 里配置：
 
