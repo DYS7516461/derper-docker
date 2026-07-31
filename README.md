@@ -12,6 +12,7 @@ derper-docker/
 ├── docker-compose.yml
 ├── docker-compose.host.yml
 ├── docker-compose.bridge.yml
+├── docker-compose.verify-clients.yml
 ├── .env.example
 ├── .github/workflows/build.yml
 ├── README.md
@@ -177,6 +178,98 @@ docker compose -f docker-compose.bridge.yml up -d
 
 Let's Encrypt 证书会保存在 Docker volume `derper-certs` 中，容器重建后不会丢失。
 
+### 服务器 80 和 443 已被 nginx 占用
+
+DERP 不建议放在普通 HTTP 反向代理后面，例如 nginx `location` + `proxy_pass`。DERP 客户端会先建立 TLS 连接，然后在连接内部升级到 DERP 自己的双向协议；普通 HTTP 反代很容易破坏这个连接。
+
+遇到 nginx 已经占用 TCP `80` 和 `443` 时，建议按下面优先级选择。
+
+#### 方案 A：DERPer 使用非标准 HTTPS 端口
+
+这是最简单、最稳的共存方式：nginx 继续使用 `80/443`，DERPer 使用例如 `8443/tcp`，STUN 仍使用 `3478/udp`。
+
+`.env` 示例：
+
+```dotenv
+DERP_HOSTNAME=derp.example.com
+DERP_CERT_MODE=manual
+DERP_HTTP_PORT=-1
+DERP_HTTPS_PORT=8443
+DERP_STUN_PORT=3478
+```
+
+`DERP_CERT_MODE=manual` 表示 DERPer 不再自己申请 Let's Encrypt 证书。你需要用 nginx、certbot、acme.sh 或 DNS-01 先为 `DERP_HOSTNAME` 申请证书，然后让容器能读到这两个文件：
+
+```text
+/var/lib/derper/certs/derp.example.com.crt
+/var/lib/derper/certs/derp.example.com.key
+```
+
+如果证书在宿主机 `/etc/letsencrypt/live/derp.example.com/`，可以增加一个本地 override 文件 `docker-compose.manual-cert.yml`：
+
+```yaml
+services:
+  derper:
+    volumes:
+      - /etc/letsencrypt/live/derp.example.com/fullchain.pem:/var/lib/derper/certs/derp.example.com.crt:ro
+      - /etc/letsencrypt/live/derp.example.com/privkey.pem:/var/lib/derper/certs/derp.example.com.key:ro
+```
+
+然后启动：
+
+```bash
+docker compose -f docker-compose.host.yml -f docker-compose.manual-cert.yml up -d
+```
+
+此时 tailnet policy file 里的 DERP 节点也要写 `DERPPort: 8443`：
+
+```json
+{
+  "Name": "901a",
+  "RegionID": 901,
+  "HostName": "derp.example.com",
+  "DERPPort": 8443,
+  "STUNPort": 3478
+}
+```
+
+防火墙需要放行 TCP `8443` 和 UDP `3478`。TCP `80/443` 继续留给 nginx。
+
+#### 方案 B：nginx stream 按 SNI 做 TCP 透传
+
+如果你必须让 DERP 也使用公网 `443/tcp`，可以把 nginx 的 `443` 改成 stream 四层入口，根据 SNI 把 `derp.example.com` 透传给 DERPer，把其他域名透传给原来的 HTTPS 站点。
+
+思路示例：
+
+```nginx
+stream {
+    map $ssl_preread_server_name $backend {
+        derp.example.com derper_backend;
+        default web_backend;
+    }
+
+    upstream derper_backend {
+        server 127.0.0.1:8443;
+    }
+
+    upstream web_backend {
+        server 127.0.0.1:4443;
+    }
+
+    server {
+        listen 443;
+        proxy_pass $backend;
+        ssl_preread on;
+    }
+}
+```
+
+这种方式不是 HTTP 反代，而是 TCP 透传，TLS 仍由 DERPer 自己处理。原有 nginx HTTPS 站点需要从公网 `443` 改到内部端口，例如 `127.0.0.1:4443`。如果你不熟悉 nginx `stream`，优先使用方案 A 或单独服务器/IP。
+
+#### 方案 C：单独服务器或单独公网 IP
+
+如果可以给 DERPer 一台单独服务器，或者给同一台服务器增加一个单独公网 IP，让 DERPer 独占该 IP 的 `80/443/3478` 是最省心的方案。这样可以继续使用默认 `DERP_CERT_MODE=letsencrypt`，也不用改 nginx 的现有站点。
+
 ## DNS 和防火墙
 
 请确保：
@@ -216,6 +309,90 @@ Let's Encrypt 证书会保存在 Docker volume `derper-certs` 中，容器重建
 ```
 
 把 `derp.example.com` 换成你的 `DERP_HOSTNAME`。
+
+## 启用 DERPer 客户端认证
+
+默认 `DERP_VERIFY_CLIENTS=false` 时，只要别人知道你的 `derpMap`，理论上就可以尝试连接这个 DERPer。想限制为指定用户或指定 tailnet 成员，需要启用 DERPer 的客户端验证：
+
+```dotenv
+DERP_VERIFY_CLIENTS=true
+```
+
+客户端验证依赖宿主机上的 `tailscaled`。它不是 HTTP Basic Auth，也不是用户名密码认证；DERPer 会通过本机 Tailscale LocalAPI 校验连接过来的 Tailscale 节点是否属于本机 `tailscaled` 可见的 tailnet。
+
+启用步骤：
+
+1. 在 DERPer 宿主机安装并登录 Tailscale：
+
+```bash
+tailscale up
+```
+
+2. 建议把这台 DERPer 主机打上专用 tag，例如 `tag:derper`，方便用 ACL 控制哪些用户或设备能“看见”它。
+
+3. 使用带 socket 挂载的 compose override 启动：
+
+```bash
+docker compose -f docker-compose.host.yml -f docker-compose.verify-clients.yml up -d
+```
+
+如果使用 bridge 网络，也可以组合：
+
+```bash
+docker compose -f docker-compose.bridge.yml -f docker-compose.verify-clients.yml up -d
+```
+
+4. 在 Tailscale policy file 中只允许指定用户访问这台 DERPer 主机。Tailscale 现在推荐新配置使用 `grants`，示例：
+
+```json
+{
+  "groups": {
+    "group:derp-users": [
+      "alice@example.com",
+      "bob@example.com"
+    ]
+  },
+  "tagOwners": {
+    "tag:derper": ["autogroup:admin"]
+  },
+  "grants": [
+    {
+      "src": ["group:derp-users"],
+      "dst": ["tag:derper"],
+      "ip": ["*"]
+    }
+  ]
+}
+```
+
+如果你的 policy file 里已有类似允许所有成员访问所有设备的宽泛 `grants` 或旧版 `acls` 规则，所有成员可能仍然能被 DERPer 验证通过。要实现“指定用户才可以使用”，需要避免这些宽泛规则覆盖 `tag:derper`。
+
+## 共享给朋友使用
+
+共享自建 DERPer 时，先区分朋友是否在你的 tailnet 里。
+
+### 朋友加入你的 tailnet
+
+这是最适合“指定用户”的方式：
+
+1. 邀请朋友加入你的 tailnet，或让朋友的设备以你允许的账号登录。
+2. 在 policy file 中把朋友账号加入 `group:derp-users`。
+3. 保持 `DERP_VERIFY_CLIENTS=true`。
+4. 在你的 tailnet policy file 中发布上面的 `derpMap`。
+
+这样只有 policy file 允许的用户或设备可以通过验证并使用这个 DERPer。
+
+### 朋友使用自己的 tailnet
+
+如果朋友使用的是他自己的 tailnet，他也需要在自己的 tailnet policy file 中添加同样的 `derpMap`。但是需要注意：`DERP_VERIFY_CLIENTS=true` 只能验证 DERPer 宿主机本机 `tailscaled` 所在 tailnet 中可见的节点，不能直接验证另一个独立 tailnet 的成员。
+
+因此跨 tailnet 共享通常有三个选择：
+
+- 不开启客户端验证，只把 `derpMap` 给朋友；这最简单，但不是“指定用户”。
+- 为朋友单独部署一套 DERPer，并让那台 DERPer 宿主机登录朋友自己的 tailnet。
+- 让朋友加入你的 tailnet，然后按上一节用 ACL 指定用户。
+
+如果目标是“只给几个朋友用，并且不公开给陌生人”，推荐让朋友加入你的 tailnet，再开启 `DERP_VERIFY_CLIENTS=true` 和 policy file 分组。
 
 ## 本地测试构建
 
