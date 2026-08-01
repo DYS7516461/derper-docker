@@ -1,0 +1,5 @@
+services:
+  derper:
+    volumes:
+      - ${DERP_CERT_FULLCHAIN}:/var/lib/derper/certs/${DERP_HOSTNAME}.crt:ro
+      - ${DERP_CERT_PRIVKEY}:/var/lib/derper/certs/${DERP_HOSTNAME}.key:ro

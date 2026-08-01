@@ -12,7 +12,9 @@ derper-docker/
 ├── docker-compose.yml
 ├── docker-compose.host.yml
 ├── docker-compose.bridge.yml
+├── docker-compose.manual-cert.yml
 ├── docker-compose.verify-clients.yml
+├── install.sh
 ├── .env.example
 ├── .github/workflows/build.yml
 ├── README.md
@@ -65,15 +67,16 @@ docker.io/<dockerhub-namespace>/<dockerhub-image>:latest
 
 ### GitHub Secrets
 
-GHCR 使用 `GHCR_TOKEN`。请在 GitHub Repository Settings -> Secrets and variables -> Actions 里配置：
+GHCR 使用 GitHub Actions 内置的 `GITHUB_TOKEN`，仓库已经配置：
 
 ```text
-GHCR_TOKEN=your-github-token
+permissions:
+  packages: write
 ```
 
-`GHCR_TOKEN` 可以使用 GitHub Personal Access Token，至少需要 `write:packages` 权限。如果仓库是私有仓库，通常还需要 `repo` 权限。
-
 不要手动创建名为 `GITHUB_TOKEN` 的 Secret。`GITHUB_TOKEN` 是 GitHub Actions 的内置 token，GitHub 不允许用户创建以 `GITHUB_` 开头的 Secret。
+
+通常不需要为 GHCR 额外配置 Personal Access Token；只有推送 Docker Hub 或阿里云 ACR 时才需要配置下面的额外变量和 Secret。
 
 如果要推送 Docker Hub，需要配置 Repository Variables：
 
@@ -118,6 +121,71 @@ git push origin v1.86.2
 之后 GitHub Actions 会自动构建并推送镜像。
 
 ## 服务器部署
+
+### 傻瓜式安装引导
+
+推荐首次部署直接使用交互式安装脚本：
+
+```bash
+git clone https://github.com/DYS7516461/derper-docker.git
+cd derper-docker
+bash install.sh
+```
+
+脚本会一步一步询问：
+
+- DERPer 域名，例如 `derp.example.com`。
+- Docker 镜像地址；默认会根据当前 GitHub remote 推导为 `ghcr.io/<owner>/<repo>:latest`，fork 后也可以直接改成自己的镜像地址。
+- 使用 `host` 还是 `bridge` 网络，Linux 服务器推荐 `host`。
+- 证书模式，宝塔/nginx 已占用 `80/443` 时推荐 `manual`。
+- DERP HTTPS 端口，例如 `4443`。
+- STUN UDP 端口，例如 `3478`。
+- 是否启用 `DERP_VERIFY_CLIENTS` 客户端认证。
+
+如果服务器安装了宝塔面板，并且已经为当前域名申请证书，脚本会自动识别：
+
+```text
+/www/server/panel/vhost/cert/<你的域名>/fullchain.pem
+/www/server/panel/vhost/cert/<你的域名>/privkey.pem
+```
+
+如果没有识别到宝塔证书，脚本会让你手动输入 `fullchain.pem` 和 `privkey.pem` 的实际路径。
+
+脚本还会检测 Docker、Docker Compose；如果缺失，会询问是否使用 Docker 官方安装脚本安装。启用客户端认证时，脚本也会检测 Tailscale，并在需要时引导安装和登录。
+
+部署完成后，脚本会在当前项目目录生成：
+
+```text
+.env
+derpMap.hujson
+```
+
+`.env` 是当前服务器部署配置；`derpMap.hujson` 是可以复制到 Tailscale policy file 的自定义 DERP 配置。它们已经加入 `.gitignore`，避免误提交个人域名、IP 或证书路径。
+
+宝塔/nginx 继续占用 `80/443`，DERPer 直接开放非标准端口时，通常只需要额外放行：
+
+```text
+TCP 4443
+UDP 3478
+```
+
+生成的 `derpMap.hujson` 里也会自动使用你选择的端口。
+
+非交互 dry-run 示例：
+
+```bash
+DERPER_INSTALL_NONINTERACTIVE=1 \
+DERPER_INSTALL_DRY_RUN=1 \
+DERPER_INSTALL_HOSTNAME=derp.example.com \
+DERPER_INSTALL_CERT_MODE=manual \
+DERPER_INSTALL_CERT_FULLCHAIN=/path/to/fullchain.pem \
+DERPER_INSTALL_CERT_PRIVKEY=/path/to/privkey.pem \
+DERPER_INSTALL_HTTPS_PORT=4443 \
+DERPER_INSTALL_STUN_PORT=3478 \
+bash install.sh --non-interactive --dry-run
+```
+
+### 手动部署
 
 复制环境变量模板：
 
@@ -193,6 +261,8 @@ DERP 不建议放在普通 HTTP 反向代理后面，例如 nginx `location` + `
 ```dotenv
 DERP_HOSTNAME=derp.example.com
 DERP_CERT_MODE=manual
+DERP_CERT_FULLCHAIN=/etc/letsencrypt/live/derp.example.com/fullchain.pem
+DERP_CERT_PRIVKEY=/etc/letsencrypt/live/derp.example.com/privkey.pem
 DERP_HTTP_PORT=-1
 DERP_HTTPS_PORT=8443
 DERP_STUN_PORT=3478
@@ -205,15 +275,19 @@ DERP_STUN_PORT=3478
 /var/lib/derper/certs/derp.example.com.key
 ```
 
-如果证书在宿主机 `/etc/letsencrypt/live/derp.example.com/`，可以增加一个本地 override 文件 `docker-compose.manual-cert.yml`：
+宿主机上的证书文件可以继续叫 `fullchain.pem` 和 `privkey.pem`，不需要重命名；只要在 Docker 挂载时把它们映射成容器内的 `<DERP_HOSTNAME>.crt` 和 `<DERP_HOSTNAME>.key` 即可。
+
+仓库已经提供 `docker-compose.manual-cert.yml`，会把 `.env` 中的 `DERP_CERT_FULLCHAIN` 和 `DERP_CERT_PRIVKEY` 挂载到 DERPer 需要的位置：
 
 ```yaml
 services:
   derper:
     volumes:
-      - /etc/letsencrypt/live/derp.example.com/fullchain.pem:/var/lib/derper/certs/derp.example.com.crt:ro
-      - /etc/letsencrypt/live/derp.example.com/privkey.pem:/var/lib/derper/certs/derp.example.com.key:ro
+      - ${DERP_CERT_FULLCHAIN}:/var/lib/derper/certs/${DERP_HOSTNAME}.crt:ro
+      - ${DERP_CERT_PRIVKEY}:/var/lib/derper/certs/${DERP_HOSTNAME}.key:ro
 ```
+
+如果你的证书放在其他目录，把 `.env` 里的 `DERP_CERT_FULLCHAIN` 和 `DERP_CERT_PRIVKEY` 换成实际路径即可。
 
 然后启动：
 

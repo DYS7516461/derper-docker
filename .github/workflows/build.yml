@@ -63,7 +63,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to Alibaba Cloud ACR
         if: env.ACR_REGISTRY != '' && env.ACR_USERNAME != '' && env.ACR_PASSWORD != ''
@@ -126,3 +126,5 @@ jobs:
           build-args: |
             TAILSCALE_VERSION=${{ steps.version.outputs.value }}
           tags: ${{ steps.tags.outputs.value }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
