@@ -1,4 +1,4 @@
 services:
   derper:
     volumes:
-      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock

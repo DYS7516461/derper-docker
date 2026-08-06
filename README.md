@@ -10,11 +10,12 @@ DERPer 来自 Tailscale 官方 Go 包：`tailscale.com/cmd/derper`。
 derper-docker/
 ├── Dockerfile
 ├── docker-compose.yml
-├── docker-compose.host.yml
 ├── docker-compose.bridge.yml
+├── docker-compose.bridge-manual.yml
 ├── docker-compose.manual-cert.yml
 ├── docker-compose.verify-clients.yml
 ├── install.sh
+├── tests/
 ├── .env.example
 ├── .github/workflows/build.yml
 ├── README.md
@@ -222,10 +223,10 @@ docker compose up -d
 
 ### Host 网络模式
 
-默认 `docker-compose.yml` 和 `docker-compose.host.yml` 都使用 host 网络。适合 Linux 服务器，端口映射最少，STUN UDP 行为也更直接。
+默认 `docker-compose.yml` 使用 host 网络。适合 Linux 服务器，端口映射最少，STUN UDP 行为也更直接。
 
 ```bash
-docker compose -f docker-compose.host.yml up -d
+docker compose -f docker-compose.yml up -d
 ```
 
 ### Bridge 网络模式
@@ -292,7 +293,7 @@ services:
 然后启动：
 
 ```bash
-docker compose -f docker-compose.host.yml -f docker-compose.manual-cert.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.manual-cert.yml up -d
 ```
 
 此时 tailnet policy file 里的 DERP 节点也要写 `DERPPort: 8443`：
@@ -407,7 +408,7 @@ tailscale up
 3. 使用带 socket 挂载的 compose override 启动：
 
 ```bash
-docker compose -f docker-compose.host.yml -f docker-compose.verify-clients.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.verify-clients.yml up -d
 ```
 
 如果使用 bridge 网络，也可以组合：

@@ -73,18 +73,18 @@ test_host_manual_cert_generates_env_derpmap_and_compose_command() {
     DERPER_INSTALL_STUN_PORT=3478 \
     DERPER_INSTALL_VERIFY_CLIENTS=false
 
-  assert_file_contains "$workdir/.env" '^DERP_HOSTNAME=derp.example.com$'
-  assert_file_contains "$workdir/.env" '^DERP_CERT_MODE=manual$'
-  assert_file_contains "$workdir/.env" "^DERP_CERT_FULLCHAIN=$cert_dir/fullchain.pem$"
-  assert_file_contains "$workdir/.env" "^DERP_CERT_PRIVKEY=$cert_dir/privkey.pem$"
+  assert_file_contains "$workdir/.env" '^DERP_HOSTNAME="derp.example.com"$'
+  assert_file_contains "$workdir/.env" '^DERP_CERT_MODE="manual"$'
+  assert_file_contains "$workdir/.env" "^DERP_CERT_FULLCHAIN=\"$cert_dir/fullchain.pem\"$"
+  assert_file_contains "$workdir/.env" "^DERP_CERT_PRIVKEY=\"$cert_dir/privkey.pem\"$"
   assert_file_contains "$workdir/.env" '^DERP_HTTPS_PORT=4443$'
-  assert_file_contains "$workdir/.env" '^DERP_VERIFY_CLIENTS=false$'
+  assert_file_contains "$workdir/.env" '^DERP_VERIFY_CLIENTS="false"$'
 
   assert_file_contains "$workdir/derpMap.hujson" '"HostName": "derp.example.com"'
   assert_file_contains "$workdir/derpMap.hujson" '"DERPPort": 4443'
   assert_file_contains "$workdir/derpMap.hujson" '"STUNPort": 3478'
 
-  assert_file_contains "$workdir/output.txt" 'docker-compose.host.yml'
+  assert_file_contains "$workdir/output.txt" 'docker-compose.yml'
   assert_file_contains "$workdir/output.txt" 'docker-compose.manual-cert.yml'
   assert_file_contains "$workdir/output.txt" 'up -d'
 }
@@ -99,11 +99,31 @@ test_bridge_letsencrypt_uses_default_ports_without_manual_cert_compose() {
     DERPER_INSTALL_CERT_MODE=letsencrypt \
     DERPER_INSTALL_VERIFY_CLIENTS=false
 
-  assert_file_contains "$workdir/.env" '^DERP_CERT_MODE=letsencrypt$'
+  assert_file_contains "$workdir/.env" '^DERP_CERT_MODE="letsencrypt"$'
   assert_file_contains "$workdir/.env" '^DERP_HTTP_PORT=80$'
   assert_file_contains "$workdir/.env" '^DERP_HTTPS_PORT=443$'
   assert_file_contains "$workdir/output.txt" 'docker-compose.bridge.yml'
   ! grep -q 'docker-compose.manual-cert.yml' "$workdir/output.txt"
+}
+
+test_bridge_manual_cert_uses_bridge_manual_compose() {
+  local workdir="$tmp_root/bridge-manual"
+  local cert_dir="$workdir/certs"
+  prepare_workdir "$workdir"
+  make_certs "$cert_dir"
+
+  run_installer "$workdir" \
+    DERPER_INSTALL_HOSTNAME=derp.example.net \
+    DERPER_INSTALL_NETWORK=bridge \
+    DERPER_INSTALL_CERT_MODE=manual \
+    DERPER_INSTALL_CERT_FULLCHAIN="$cert_dir/fullchain.pem" \
+    DERPER_INSTALL_CERT_PRIVKEY="$cert_dir/privkey.pem" \
+    DERPER_INSTALL_VERIFY_CLIENTS=false
+
+  assert_file_contains "$workdir/.env" '^DERP_HTTP_PORT=-1$'
+  assert_file_contains "$workdir/output.txt" 'docker-compose.bridge-manual.yml'
+  assert_file_contains "$workdir/output.txt" 'docker-compose.manual-cert.yml'
+  ! grep -q 'docker-compose.bridge.yml' "$workdir/output.txt"
 }
 
 test_verify_clients_adds_socket_compose_file() {
@@ -120,7 +140,7 @@ test_verify_clients_adds_socket_compose_file() {
     DERPER_INSTALL_CERT_PRIVKEY="$cert_dir/privkey.pem" \
     DERPER_INSTALL_VERIFY_CLIENTS=true
 
-  assert_file_contains "$workdir/.env" '^DERP_VERIFY_CLIENTS=true$'
+  assert_file_contains "$workdir/.env" '^DERP_VERIFY_CLIENTS="true"$'
   assert_file_contains "$workdir/output.txt" 'docker-compose.verify-clients.yml'
 }
 
@@ -175,6 +195,7 @@ test_invalid_ipv4_is_rejected() {
 for test_name in \
   test_host_manual_cert_generates_env_derpmap_and_compose_command \
   test_bridge_letsencrypt_uses_default_ports_without_manual_cert_compose \
+  test_bridge_manual_cert_uses_bridge_manual_compose \
   test_verify_clients_adds_socket_compose_file \
   test_valid_ipv4_is_written_to_derpmap \
   test_invalid_port_is_rejected \
