@@ -1,3 +1,4 @@
 docs/
 .env
 derpMap.hujson
+.test-certs/
