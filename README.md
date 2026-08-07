@@ -41,10 +41,12 @@ GitHub Actions 会在构建时通过 `--build-arg TAILSCALE_VERSION=...` 覆盖�
 
 工作流文件：`.github/workflows/build.yml`
 
-支持两种触发方式：
+支持三种触发方式：
 
 - 推送 Git Tag，例如 `v1.86.2`。
 - 在 GitHub Actions 页面手动运行，并输入 `tailscale_version`。
+- 定时自动检查（每 6 小时）：检测 Tailscale 官方最新稳定版，若 GHCR 尚未发布该版本，
+  自动构建并推送到 GHCR、阿里云 ACR、Docker Hub，同时更新 `latest`。
 
 发布 tag 时会构建：
 
