@@ -10,6 +10,7 @@ services:
       - "${DERP_HTTPS_PORT:-443}:443/tcp"
       - "${DERP_STUN_PORT:-3478}:3478/udp"
     command:
+      - -c=${DERP_CONFIG_FILE:-/var/lib/derper/certs/derper.key}
       - --hostname=${DERP_HOSTNAME}
       - --certmode=${DERP_CERT_MODE:-letsencrypt}
       - --certdir=${DERP_CERT_DIR:-/var/lib/derper/certs}
