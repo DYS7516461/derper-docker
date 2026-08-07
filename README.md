@@ -66,7 +66,7 @@ docker.io/<dockerhub-namespace>/<dockerhub-image>:v1.86.2
 docker.io/<dockerhub-namespace>/<dockerhub-image>:latest
 ```
 
-手动运行时默认只推送输入的版本 tag；如果勾选 `push_latest`，也会推送 `latest`。
+任何一次构建（tag 推送、手动运行、定时自动检测）都会同时更新并推送 `latest` 标签到已配置的镜像仓库。
 
 ### GitHub Secrets
 

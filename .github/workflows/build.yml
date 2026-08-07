@@ -10,11 +10,6 @@ on:
         description: "Tailscale version to build, for example v1.86.2"
         required: true
         default: "v1.86.2"
-      push_latest:
-        description: "Also push latest tag"
-        required: true
-        default: false
-        type: boolean
   schedule:
     # Check for new official Tailscale stable releases every 6 hours.
     # A build only runs when the version is not published in GHCR yet.
@@ -93,16 +88,15 @@ jobs:
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             echo "value=${GITHUB_REF_NAME}" >> "${GITHUB_OUTPUT}"
-            echo "push_latest=true" >> "${GITHUB_OUTPUT}"
           elif [[ "${{ github.event_name }}" == "schedule" ]]; then
             echo "value=${{ needs.check-version.outputs.version }}" >> "${GITHUB_OUTPUT}"
-            echo "push_latest=true" >> "${GITHUB_OUTPUT}"
           else
             VERSION="${{ inputs.tailscale_version }}"
             [[ "${VERSION}" == v* ]] || VERSION="v${VERSION}"
             echo "value=${VERSION}" >> "${GITHUB_OUTPUT}"
-            echo "push_latest=${{ inputs.push_latest }}" >> "${GITHUB_OUTPUT}"
           fi
+          # latest is always updated and pushed on every build
+          echo "push_latest=true" >> "${GITHUB_OUTPUT}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -154,16 +148,15 @@ jobs:
               echo "docker.io/${DOCKERHUB_REPOSITORY}:${VERSION}"
             fi
 
-            if [[ "${{ steps.version.outputs.push_latest }}" == "true" ]]; then
-              echo "${GHCR_IMAGE}:latest"
+            # latest is always updated and pushed on every build
+            echo "${GHCR_IMAGE}:latest"
 
-              if [[ -n "${ACR_REGISTRY}" && -n "${ACR_NAMESPACE}" ]]; then
-                echo "${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMAGE_NAME}:latest"
-              fi
+            if [[ -n "${ACR_REGISTRY}" && -n "${ACR_NAMESPACE}" ]]; then
+              echo "${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMAGE_NAME}:latest"
+            fi
 
-              if [[ -n "${DOCKERHUB_NAMESPACE}" && -n "${DOCKERHUB_USERNAME}" && -n "${DOCKERHUB_TOKEN}" ]]; then
-                echo "docker.io/${DOCKERHUB_REPOSITORY}:latest"
-              fi
+            if [[ -n "${DOCKERHUB_NAMESPACE}" && -n "${DOCKERHUB_USERNAME}" && -n "${DOCKERHUB_TOKEN}" ]]; then
+              echo "docker.io/${DOCKERHUB_REPOSITORY}:latest"
             fi
 
             echo "EOF"
