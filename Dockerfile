@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 
 ARG TAILSCALE_VERSION=v1.86.2
-ARG GO_IMAGE=golang:1.25-bookworm
+ARG GO_IMAGE=golang:1.26-bookworm
 
 FROM ${GO_IMAGE} AS builder
 
 ARG TAILSCALE_VERSION
 
-ENV CGO_ENABLED=0
+ENV CGO_ENABLED=0 GOTOOLCHAIN=auto
 
 RUN go install tailscale.com/cmd/derper@${TAILSCALE_VERSION}
 

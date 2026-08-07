@@ -26,7 +26,7 @@ derper-docker/
 
 `Dockerfile` 使用多阶段构建：
 
-1. `golang:1.25-bookworm` 编译 `tailscale.com/cmd/derper@${TAILSCALE_VERSION}`。
+1. `golang:1.26-bookworm` 编译 `tailscale.com/cmd/derper@${TAILSCALE_VERSION}`（`GOTOOLCHAIN=auto`，Tailscale 要求更高 Go 版本时自动切换）。
 2. `debian:bookworm-slim` 作为运行镜像，只安装 `ca-certificates` 并复制 `derper` 二进制。
 
 默认版本是：
