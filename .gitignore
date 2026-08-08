@@ -2,3 +2,6 @@ docs/
 .env
 derpMap.hujson
 .test-certs/
+
+# local working files (not part of the project)
+MEMORY.md

@@ -1,127 +1,40 @@
 # DERPer Docker
 
-用 GitHub Actions 自编译 DERPer Docker 镜像，并推送到 GHCR、阿里云 ACR 和 Docker Hub。服务器只需要 `docker compose pull` 和 `docker compose up -d`，不需要安装 Go、Docker Buildx 或在本机编译。
+一键部署自建 [Tailscale](https://tailscale.com) DERP 中继服务器，提升 异地组网 网络的直连体验。镜像已自动编译并推送到镜像仓库，服务器上只需要 `docker compose pull` 和 `docker compose up -d`，不需要安装 Go、Docker Buildx 或在本机编译。
 
 DERPer 来自 Tailscale 官方 Go 包：`tailscale.com/cmd/derper`。
 
-## 仓库结构
+## 目录
 
-```text
-derper-docker/
-├── Dockerfile
-├── docker-compose.yml
-├── docker-compose.bridge.yml
-├── docker-compose.bridge-manual.yml
-├── docker-compose.manual-cert.yml
-├── docker-compose.verify-clients.yml
-├── install.sh
-├── tests/
-├── .env.example
-├── .github/workflows/build.yml
-├── README.md
-└── LICENSE
-```
+- [服务器选购](#服务器选购)
+- [服务器部署](#服务器部署)
+- [DNS 和防火墙](#dns-和防火墙)
+- [Tailscale 配置示例](#tailscale-配置示例)
+- [启用 DERPer 客户端认证](#启用-derper-客户端认证)
+- [共享给朋友使用](#共享给朋友使用)
+- [常见注意事项](#常见注意事项)
+- [赞助与支持](#赞助与支持)
 
-## 镜像构建
+## 服务器选购
 
-`Dockerfile` 使用多阶段构建：
+DERPer 需要一个拥有公网 IP 的云服务器。它的配置要求不高，入门机型即可稳定运行：
 
-1. `golang:1.26-bookworm` 编译 `tailscale.com/cmd/derper@${TAILSCALE_VERSION}`（`GOTOOLCHAIN=auto`，Tailscale 要求更高 Go 版本时自动切换）。
-2. `debian:bookworm-slim` 作为运行镜像，只安装 `ca-certificates` 并复制 `derper` 二进制。
+| 项目 | 建议 |
+|---|---|
+| CPU / 内存 | 1 核 1G 起，2 核 2G 更从容 |
+| 带宽 | 个人/小团队 1~5 Mbps 即可；人越多越需要提升带宽 |
+| 系统 | Debian 12 / Ubuntu 22.04+ 优先，也兼容 CentOS / Rocky |
+| 网络 | 必须有公网 IP；国内机器拉取 GHCR 较慢时可配置 Docker 镜像加速器 |
+| 防火墙 | 需放行 DERP HTTPS 端口和 STUN UDP 端口，见「DNS 和防火墙」 |
 
-默认版本是：
+> DERPer 是轻量 Go 服务，瓶颈通常在带宽而非 CPU，选购时优先关注带宽和流量。
 
-```dockerfile
-ARG TAILSCALE_VERSION=v1.86.2
-```
+常用服务器提供商：
 
-GitHub Actions 会在构建时通过 `--build-arg TAILSCALE_VERSION=...` 覆盖它。
+[雨云](https://www.rainyun.com/MTYyODg0_?s=derper_docker)</br>
+[腾讯云](https://curl.qcloud.com/pZHOvVMy)</br>
+[阿里云](https://www.aliyun.com/minisite/goods?userCode=xhg48xsu)</br>
 
-## GitHub Actions 发布
-
-工作流文件：`.github/workflows/build.yml`
-
-支持三种触发方式：
-
-- 推送 Git Tag，例如 `v1.86.2`。
-- 在 GitHub Actions 页面手动运行，并输入 `tailscale_version`。
-- 定时自动检查（每 6 小时）：检测 Tailscale 官方最新稳定版，若 GHCR 尚未发布该版本，
-  自动构建并推送到 GHCR、阿里云 ACR、Docker Hub，同时更新 `latest`。
-
-发布 tag 时会构建：
-
-```text
-linux/amd64
-linux/arm64
-```
-
-并推送：
-
-```text
-ghcr.io/<owner>/<repo>:v1.86.2
-ghcr.io/<owner>/<repo>:latest
-registry.cn-hangzhou.aliyuncs.com/<namespace>/derper:v1.86.2
-registry.cn-hangzhou.aliyuncs.com/<namespace>/derper:latest
-docker.io/<dockerhub-namespace>/<dockerhub-image>:v1.86.2
-docker.io/<dockerhub-namespace>/<dockerhub-image>:latest
-```
-
-任何一次构建（tag 推送、手动运行、定时自动检测）都会同时更新并推送 `latest` 标签到已配置的镜像仓库。
-
-### GitHub Secrets
-
-GHCR 使用 GitHub Actions 内置的 `GITHUB_TOKEN`，仓库已经配置：
-
-```text
-permissions:
-  packages: write
-```
-
-不要手动创建名为 `GITHUB_TOKEN` 的 Secret。`GITHUB_TOKEN` 是 GitHub Actions 的内置 token，GitHub 不允许用户创建以 `GITHUB_` 开头的 Secret。
-
-通常不需要为 GHCR 额外配置 Personal Access Token；只有推送 Docker Hub 或阿里云 ACR 时才需要配置下面的额外变量和 Secret。
-
-如果要推送 Docker Hub，需要配置 Repository Variables：
-
-```text
-DOCKERHUB_NAMESPACE=your-dockerhub-namespace
-DOCKERHUB_IMAGE=derper
-```
-
-`DOCKERHUB_IMAGE` 可选，不配置时默认使用 `derper`。
-
-还需要配置 Repository Secrets：
-
-```text
-DOCKERHUB_USERNAME=your-dockerhub-username
-DOCKERHUB_TOKEN=your-dockerhub-token
-```
-
-建议使用 Docker Hub Access Token，不要直接使用账号密码。
-
-如果要推送阿里云 ACR，需要在 GitHub Repository Settings -> Secrets and variables -> Actions 里配置：
-
-```text
-ALIYUN_REGISTRY=registry.cn-hangzhou.aliyuncs.com
-ALIYUN_NAMESPACE=your-namespace
-ALIYUN_USERNAME=your-acr-username
-ALIYUN_PASSWORD=your-acr-password
-```
-
-建议使用阿里云 ACR 的访问凭证，不要直接使用主账号密码。
-
-如果没有配置这些 ACR secrets，workflow 会继续推送 GHCR 和已启用的其他仓库，只跳过 ACR。
-
-如果没有完整配置 Docker Hub 的 namespace、username 和 token，workflow 会跳过 Docker Hub，不影响 GHCR / ACR。
-
-### 发版流程
-
-```bash
-git tag v1.86.2
-git push origin v1.86.2
-```
-
-之后 GitHub Actions 会自动构建并推送镜像。
 
 ## 服务器部署
 
@@ -200,15 +113,11 @@ cp .env.example .env
 
 ```dotenv
 DERP_HOSTNAME=derp.example.com
-DERPER_IMAGE=registry.cn-hangzhou.aliyuncs.com/your-namespace/derper:latest
+DERPER_IMAGE=ghcr.io/dys7516461/derper-docker:latest
 TZ=Asia/Shanghai
 ```
 
-也可以使用 Docker Hub 镜像：
-
-```dotenv
-DERPER_IMAGE=your-dockerhub-namespace/derper:latest
-```
+> 镜像由 GitHub Actions 自动构建发布，fork 后可以用自己的镜像地址。
 
 默认使用 host 网络：
 
@@ -471,25 +380,24 @@ docker compose -f docker-compose.bridge.yml -f docker-compose.verify-clients.yml
 
 如果目标是“只给几个朋友用，并且不公开给陌生人”，推荐让朋友加入你的 tailnet，再开启 `DERP_VERIFY_CLIENTS=true` 和 policy file 分组。
 
-## 本地测试构建
+## 开发者
 
-如果本机安装了 Docker，可以手动构建：
-
-```bash
-docker build --build-arg TAILSCALE_VERSION=v1.86.2 -t derper:local .
-```
-
-如果本机安装了 Docker Compose，可以检查配置：
-
-```bash
-docker compose --env-file .env.example config
-docker compose -f docker-compose.bridge.yml --env-file .env.example config
-```
+镜像构建、GitHub Actions 发版流程、Secrets 配置与本地测试构建等内容见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 ## 常见注意事项
 
 - `latest` 适合个人服务器自动跟随最新发布；生产环境也可以固定到 `v1.86.2` 这类版本 tag。
 - 首次启动时 DERPer 会根据 `--certmode=letsencrypt` 自动申请证书，前提是 DNS 和 TCP `80` 已经正确开放。
 - DERP 协议会在 TLS 内部切换到自定义双向协议，不适合放在普通 HTTP 反向代理后面；推荐让 DERPer 直接监听公网 `443/tcp`。
-- 国内服务器建议部署时使用阿里云 ACR 镜像地址，拉取会更稳定。
-- 公共开源用户可以直接使用 GHCR 或 Docker Hub 镜像地址。
+- 国内服务器拉取 GHCR 较慢时，可以配置 Docker 镜像加速器或使用代理。
+- 公共开源用户可以直接使用 GHCR 镜像地址。
+
+## 赞助与支持
+
+如果这个项目帮到了你，欢迎赞助一杯咖啡 ☕，支持持续维护：
+
+[爱发电](https://ifdian.net/a/seekray)</br>
+
+![赞赏码](assets/sponsor-qr.jpg)
+
+> 所有赞助将用于服务器、域名和开发维护。感谢每一位支持者！
