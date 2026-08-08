@@ -40,18 +40,24 @@ DERPer 需要一个拥有公网 IP 的云服务器。它的配置要求不高，
 
 ### 傻瓜式安装引导
 
-推荐首次部署直接使用交互式安装脚本：
+推荐首次部署直接使用交互式安装脚本（无需 clone 整个仓库）：
 
 ```bash
-git clone https://github.com/DYS7516461/derper-docker.git
-cd derper-docker
+curl -fsSL https://raw.githubusercontent.com/DYS7516461/derper-docker/main/install.sh -o install.sh
+bash install.sh
+```
+
+如果无法直接访问 GitHub，脚本会自动尝试多个镜像站下载 docker-compose 配置文件；也可以改用加速站获取安装脚本：
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/DYS7516461/derper-docker/main/install.sh -o install.sh
 bash install.sh
 ```
 
 脚本会一步一步询问：
 
 - DERPer 域名，例如 `derp.example.com`。
-- Docker 镜像地址；默认会根据当前 GitHub remote 推导为 `ghcr.io/<owner>/<repo>:latest`，fork 后也可以直接改成自己的镜像地址。
+- Docker 镜像地址；默认使用 `ghcr.io/dys7516461/derper-docker:latest`，fork 用户可通过环境变量 `DERPER_INSTALL_REPO` 切换为自己的仓库，或在脚本中直接输入镜像地址。
 - 使用 `host` 还是 `bridge` 网络，Linux 服务器推荐 `host`。
 - 证书模式，宝塔/nginx 已占用 `80/443` 时推荐 `manual`。
 - DERP HTTPS 端口，例如 `4443`。
@@ -68,6 +74,8 @@ bash install.sh
 如果没有识别到宝塔证书，脚本会让你手动输入 `fullchain.pem` 和 `privkey.pem` 的实际路径。
 
 脚本还会检测 Docker、Docker Compose；如果缺失，会询问是否使用 Docker 官方安装脚本安装。启用客户端认证时，脚本也会检测 Tailscale，并在需要时引导安装和登录。
+
+所需的 docker-compose 配置文件（根据你选择的网络/证书模式而定）会自动下载到当前目录；如果你已经 clone 了仓库（目录中已有这些文件），脚本会直接使用本地文件，不会重复下载。每个下载地址按顺序尝试直连和多个 GitHub 镜像站，全部失败时会打印文件链接，由你手动下载后放到当前目录，再重新运行脚本即可。
 
 部署完成后，脚本会在当前项目目录生成：
 
@@ -102,6 +110,14 @@ bash install.sh --non-interactive --dry-run
 ```
 
 ### 手动部署
+
+不想用交互式脚本时，也可以手动操作。先下载所需文件（下载失败的链接可直接用浏览器打开）：
+
+```bash
+# 下载环境变量模板与默认 compose 文件（host 网络）
+curl -fsSL https://raw.githubusercontent.com/DYS7516461/derper-docker/main/.env.example -o .env.example
+curl -fsSL https://raw.githubusercontent.com/DYS7516461/derper-docker/main/docker-compose.yml -o docker-compose.yml
+```
 
 复制环境变量模板：
 

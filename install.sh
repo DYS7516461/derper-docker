@@ -3,7 +3,28 @@ set -Eeuo pipefail
 
 NONINTERACTIVE="${DERPER_INSTALL_NONINTERACTIVE:-0}"
 DRY_RUN="${DERPER_INSTALL_DRY_RUN:-0}"
-DEFAULT_IMAGE="ghcr.io/your-github-name/derper-docker:latest"
+
+# GitHub repo used to fetch docker-compose files when they are missing.
+# Fork users can override via DERPER_INSTALL_REPO / DERPER_INSTALL_BRANCH.
+REPO="${DERPER_INSTALL_REPO:-DYS7516461/derper-docker}"
+BRANCH="${DERPER_INSTALL_BRANCH:-main}"
+RAW_BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
+
+# Mirror bases are tried in order after the direct raw URL.
+# Override with DERPER_INSTALL_MIRRORS="url1 url2 ..." if needed.
+if [[ -n "${DERPER_INSTALL_MIRRORS:-}" ]]; then
+  read -r -a MIRRORS <<< "$DERPER_INSTALL_MIRRORS"
+else
+  MIRRORS=(
+    "${RAW_BASE}"
+    "https://ghfast.top/${RAW_BASE}"
+    "https://gh-proxy.com/${RAW_BASE}"
+    "https://gh.llkk.cc/${RAW_BASE}"
+    "https://gh.ddlc.top/${RAW_BASE}"
+  )
+fi
+
+DEFAULT_IMAGE="ghcr.io/${REPO,,}:latest"
 DERPMAP_FILE="derpMap.hujson"
 
 usage() {
@@ -25,6 +46,9 @@ Environment variables for non-interactive mode:
   DERPER_INSTALL_STUN_PORT
   DERPER_INSTALL_VERIFY_CLIENTS       true or false
   DERPER_INSTALL_IPV4                 optional public IPv4 for derpMap
+  DERPER_INSTALL_REPO                 GitHub repo for compose files (default DYS7516461/derper-docker)
+  DERPER_INSTALL_BRANCH               GitHub branch (default main)
+  DERPER_INSTALL_MIRRORS              space-separated raw mirror base URLs (optional)
 EOF
 }
 
@@ -429,26 +453,91 @@ print_command() {
   printf '\n'
 }
 
-build_compose_command() {
-  compose_cmd=(docker compose)
+select_compose_files() {
+  compose_files=()
 
   if [[ "$network_mode" == "host" ]]; then
-    compose_cmd+=(-f docker-compose.yml)
+    compose_files+=(docker-compose.yml)
   elif [[ "$http_port" == "-1" ]]; then
-    compose_cmd+=(-f docker-compose.bridge-manual.yml)
+    compose_files+=(docker-compose.bridge-manual.yml)
   else
-    compose_cmd+=(-f docker-compose.bridge.yml)
+    compose_files+=(docker-compose.bridge.yml)
   fi
 
   if [[ "$cert_mode" == "manual" ]]; then
-    compose_cmd+=(-f docker-compose.manual-cert.yml)
+    compose_files+=(docker-compose.manual-cert.yml)
   fi
 
   if [[ "$verify_clients" == "true" ]]; then
-    compose_cmd+=(-f docker-compose.verify-clients.yml)
+    compose_files+=(docker-compose.verify-clients.yml)
+  fi
+}
+
+build_compose_command() {
+  select_compose_files
+  compose_cmd=(docker compose)
+  local f
+  for f in "${compose_files[@]}"; do
+    compose_cmd+=(-f "$f")
+  done
+  compose_cmd+=(up -d)
+}
+
+ensure_compose_file() {
+  local file="$1"
+
+  if [[ -f "$file" ]]; then
+    info "Using existing $file (already present in this directory)"
+    return 0
   fi
 
-  compose_cmd+=(up -d)
+  if [[ "$DRY_RUN" == "1" ]]; then
+    info "Dry run: would download $file from ${RAW_BASE}/${file}"
+    return 0
+  fi
+
+  local base url
+  for base in "${MIRRORS[@]}"; do
+    url="${base%/}/${file}"
+    if curl -fsSL --connect-timeout 8 --max-time 60 "$url" -o "$file" 2>/dev/null && [[ -s "$file" ]]; then
+      if [[ "$file" == docker-compose*.yml ]] && ! grep -q '^services:' "$file"; then
+        rm -f "$file"
+        warn "Downloaded $file from $url does not look like a compose file, trying next mirror"
+        continue
+      fi
+      info "Downloaded $file from $url"
+      return 0
+    fi
+    rm -f "$file"
+    warn "Could not download $file from $url"
+  done
+
+  cat >&2 <<EOF
+ERROR: Could not download $file automatically.
+Please download it manually and place it in: $(pwd)
+
+  ${RAW_BASE}/${file}
+
+You can also try a GitHub mirror site, for example:
+  https://ghfast.top/${RAW_BASE}/${file}
+
+Then re-run this installer; it will use the existing file.
+EOF
+  exit 1
+}
+
+ensure_compose_files() {
+  select_compose_files
+  local missing=0 f
+  for f in "${compose_files[@]}"; do
+    [[ -f "$f" ]] || missing=1
+  done
+  if [[ "$missing" == "1" && "$DRY_RUN" != "1" ]]; then
+    install_curl_if_missing
+  fi
+  for f in "${compose_files[@]}"; do
+    ensure_compose_file "$f"
+  done
 }
 
 run_deploy() {
@@ -549,6 +638,9 @@ write_env_file
 
 info "Writing $DERPMAP_FILE"
 write_derp_map
+
+info "Ensuring required docker-compose files"
+ensure_compose_files
 
 run_deploy
 

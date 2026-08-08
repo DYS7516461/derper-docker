@@ -192,6 +192,41 @@ test_invalid_ipv4_is_rejected() {
   assert_file_contains "$workdir/error.txt" 'Invalid public IPv4'
 }
 
+
+test_missing_compose_files_prints_download_url() {
+  local workdir="$tmp_root/missing-compose"
+  mkdir -p "$workdir"
+  cp "$repo_root"/install.sh "$workdir"/
+
+  run_installer "$workdir" \
+    DERPER_INSTALL_HOSTNAME=derp.example.org \
+    DERPER_INSTALL_NETWORK=host \
+    DERPER_INSTALL_CERT_MODE=manual \
+    DERPER_INSTALL_CERT_FULLCHAIN=/tmp/nonexistent/fullchain.pem \
+    DERPER_INSTALL_CERT_PRIVKEY=/tmp/nonexistent/privkey.pem \
+    DERPER_INSTALL_VERIFY_CLIENTS=false
+
+  assert_file_contains "$workdir/output.txt" 'would download docker-compose.yml from https://raw.githubusercontent.com/DYS7516461/derper-docker/main/docker-compose.yml'
+  assert_file_contains "$workdir/output.txt" 'would download docker-compose.manual-cert.yml from https://raw.githubusercontent.com/DYS7516461/derper-docker/main/docker-compose.manual-cert.yml'
+}
+
+test_custom_repo_overrides_download_base_and_default_image() {
+  local workdir="$tmp_root/custom-repo"
+  mkdir -p "$workdir"
+  cp "$repo_root"/install.sh "$workdir"/
+
+  run_installer "$workdir" \
+    DERPER_INSTALL_REPO=octocat/derper \
+    DERPER_INSTALL_BRANCH=dev \
+    DERPER_INSTALL_HOSTNAME=derp.example.org \
+    DERPER_INSTALL_NETWORK=host \
+    DERPER_INSTALL_CERT_MODE=letsencrypt \
+    DERPER_INSTALL_VERIFY_CLIENTS=false
+
+  assert_file_contains "$workdir/output.txt" 'would download docker-compose.yml from https://raw.githubusercontent.com/octocat/derper/dev/docker-compose.yml'
+  assert_file_contains "$workdir/.env" '^DERPER_IMAGE="ghcr.io/octocat/derper:latest"$'
+}
+
 for test_name in \
   test_host_manual_cert_generates_env_derpmap_and_compose_command \
   test_bridge_letsencrypt_uses_default_ports_without_manual_cert_compose \
@@ -199,7 +234,9 @@ for test_name in \
   test_verify_clients_adds_socket_compose_file \
   test_valid_ipv4_is_written_to_derpmap \
   test_invalid_port_is_rejected \
-  test_invalid_ipv4_is_rejected
+  test_invalid_ipv4_is_rejected \
+  test_missing_compose_files_prints_download_url \
+  test_custom_repo_overrides_download_base_and_default_image
 do
   "$test_name"
   printf 'ok - %s\n' "$test_name"
