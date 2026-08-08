@@ -322,6 +322,24 @@ validate_cert_paths() {
 
   [[ -f "$fullchain" ]] || die "Certificate file not found: $fullchain"
   [[ -f "$privkey" ]] || die "Private key file not found: $privkey"
+
+  ensure_other_readable "$fullchain" "fullchain.pem"
+  ensure_other_readable "$privkey" "privkey.pem"
+}
+
+ensure_other_readable() {
+  # DERPer container runs as non-root user "derper"; certificate files must be
+  # readable by that user, i.e. the "other" read bit must be set.
+  local file="$1" label="$2" mode
+  mode=$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null)
+  [[ -n "$mode" ]] || return 0
+  if [[ $(( 10#$mode & 4 )) -eq 0 ]]; then
+    warn "$label is not readable by the container user (mode $mode); DERPer runs as non-root inside the container"
+    if ! chmod o+r "$file" 2>/dev/null; then
+      die "Cannot make $label world-readable. Please run: chmod o+r \"$file\""
+    fi
+    info "Fixed permissions on $label (now $(stat -c '%a' "$file" 2>/dev/null))"
+  fi
 }
 
 validate_hostname() {
